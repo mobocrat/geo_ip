@@ -48,6 +48,7 @@ import (
 // send a get request
 
 func main() {
+	go incrementer()
 	e := echo.New()
 	e.Use(ipLocater)
 	e.GET("/", func(c echo.Context) error {

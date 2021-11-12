@@ -9,7 +9,10 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
+var locationChan = make(chan *LocationResponse, 100)
+
 var locationStats = map[string]int{}
+var ipDictionary = map[string]*LocationResponse{}
 
 type LocationResponse struct {
 	Status      string  `json:"status"`
@@ -31,20 +34,8 @@ type LocationResponse struct {
 func ipLocater(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		requestIp := c.RealIP()
-		res, err := http.Get("http://ip-api.com/json/" + requestIp)
-		if err != nil {
-			fmt.Println(err)
-		}
-		respBody, err := ioutil.ReadAll(res.Body)
-		if err != nil {
-			fmt.Println(err)
-		}
-		var loc LocationResponse
-		json.Unmarshal(respBody, &loc)
-		fmt.Println(loc.Country)
-		res.Body.Close()
 
-		incrementCountryNum(&loc)
+		locationChan <- resolveLocation(requestIp)
 
 		return next(c)
 	}
@@ -57,4 +48,34 @@ func incrementCountryNum(loc *LocationResponse) {
 	} else {
 		locationStats[loc.Country] = 1
 	}
+}
+func incrementer() {
+	for loc := range locationChan {
+
+		incrementCountryNum(loc)
+	}
+}
+
+func resolveLocation(requestIp string) *LocationResponse {
+	location, ok := ipDictionary[requestIp]
+	//fetch from cache if exists
+	if ok {
+		return location
+	}
+
+	res, err := http.Get("http://ip-api.com/json/" + requestIp)
+	if err != nil {
+		fmt.Println(err)
+	}
+	respBody, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		fmt.Println(err)
+	}
+	var loc LocationResponse
+	json.Unmarshal(respBody, &loc)
+	res.Body.Close()
+	fmt.Println(loc.Country, requestIp, res.StatusCode)
+	//save to cache
+	ipDictionary[requestIp] = &loc
+	return &loc
 }
