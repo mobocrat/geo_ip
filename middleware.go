@@ -9,7 +9,7 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-var locationChan = make(chan *LocationResponse, 100)
+var locationChan = make(chan string, 100)
 
 var locationStats = map[string]int{}
 var ipDictionary = map[string]*LocationResponse{}
@@ -33,9 +33,9 @@ type LocationResponse struct {
 
 func ipLocater(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		requestIp := c.RealIP()
 
-		locationChan <- resolveLocation(requestIp)
+		// locationChan <- resolveLocation(requestIp)
+		locationChan <- c.RealIP()
 
 		return next(c)
 	}
@@ -50,17 +50,23 @@ func incrementCountryNum(loc *LocationResponse) {
 	}
 }
 func incrementer() {
-	for loc := range locationChan {
+	for ip := range locationChan {
 
-		incrementCountryNum(loc)
+		loc, hit := resolveLocation(ip)
+		if !hit {
+			incrementCountryNum(loc)
+		}
 	}
 }
 
-func resolveLocation(requestIp string) *LocationResponse {
-	location, ok := ipDictionary[requestIp]
+type hit bool
+
+func resolveLocation(requestIp string) (*LocationResponse, hit) {
+	loc, ok := ipDictionary[requestIp]
 	//fetch from cache if exists
 	if ok {
-		return location
+		fmt.Println("fetching from cache : ", loc.Country, requestIp)
+		return loc, true
 	}
 
 	res, err := http.Get("http://ip-api.com/json/" + requestIp)
@@ -71,11 +77,11 @@ func resolveLocation(requestIp string) *LocationResponse {
 	if err != nil {
 		fmt.Println(err)
 	}
-	var loc LocationResponse
-	json.Unmarshal(respBody, &loc)
+	loc = &LocationResponse{}
+	json.Unmarshal(respBody, loc)
 	res.Body.Close()
-	fmt.Println(loc.Country, requestIp, res.StatusCode)
+	fmt.Println("fetching from remote api : ", loc.Country, requestIp, res.StatusCode)
 	//save to cache
-	ipDictionary[requestIp] = &loc
-	return &loc
+	ipDictionary[requestIp] = loc
+	return loc, false
 }
